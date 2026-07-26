@@ -114,6 +114,9 @@ msgstr "한자 사용"
 msgid "Use Hangul"
 msgstr "한글 사용"
 
+msgid "Convert to Hanja"
+msgstr "한자로 변환"
+
 #: src/hangul.conf.in:2 src/hangul-addon.conf.in.in:2
 msgid "Hangul"
 msgstr "한글"

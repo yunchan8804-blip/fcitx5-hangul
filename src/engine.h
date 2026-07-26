@@ -7,6 +7,7 @@
 #ifndef _FCITX5_HANGUL_ENGINE_H_
 #define _FCITX5_HANGUL_ENGINE_H_
 
+#include "candidatepolicy.h"
 #include "completiondictionary.h"
 #include <cstdint>
 #include <fcitx-config/configuration.h>
@@ -134,12 +135,18 @@ public:
     HangulState *state(InputContext *ic);
 
     void updateAction(InputContext *ic) {
-        action_.setIcon(*config_.hanjaMode ? "fcitx-hanja-active"
-                                           : "fcitx-hanja-inactive");
-        action_.setLongText(*config_.hanjaMode ? _("Use Hanja")
-                                               : _("Use Hangul"));
-        action_.setShortText(*config_.hanjaMode ? "\xe9\x9f\x93"
-                                                : "\xed\x95\x9c");
+        const auto persistentHanja = usePersistentHanjaCandidates(
+            *config_.hanjaMode, *config_.wordCompletion);
+        action_.setIcon(persistentHanja ? "fcitx-hanja-active"
+                                        : "fcitx-hanja-inactive");
+        action_.setLongText(*config_.wordCompletion
+                                ? _("Convert to Hanja")
+                                : (persistentHanja ? _("Use Hanja")
+                                                   : _("Use Hangul")));
+        action_.setShortText(*config_.wordCompletion
+                                 ? "\xed\x95\x9c\xec\x9e\x90"
+                                 : (persistentHanja ? "\xe9\x9f\x93"
+                                                    : "\xed\x95\x9c"));
         action_.update(ic);
         safeSaveAsIni(config_, "conf/hangul.conf");
     }

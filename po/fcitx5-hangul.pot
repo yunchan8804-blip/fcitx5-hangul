@@ -120,6 +120,10 @@ msgstr ""
 msgid "Use Hanja"
 msgstr ""
 
+#: src/engine.h:145
+msgid "Convert to Hanja"
+msgstr ""
+
 #: src/engine.h:93
 msgid "Word Commit"
 msgstr ""

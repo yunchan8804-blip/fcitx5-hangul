@@ -4,15 +4,49 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 #include "completiondictionary.h"
+#include <algorithm>
 #include <fstream>
+#include <iterator>
 #include <string_view>
 #include <unordered_set>
 #include <utility>
 
 namespace fcitx {
 
-CompletionDictionary::CompletionDictionary(std::vector<std::string> words)
-    : words_(std::move(words)) {}
+CompletionDictionary::CompletionDictionary(std::vector<std::string> words) {
+    std::copy_if(std::make_move_iterator(words.begin()),
+                 std::make_move_iterator(words.end()),
+                 std::back_inserter(words_), [](const auto &word) {
+                     return isModernHangulWord(word);
+                 });
+}
+
+bool CompletionDictionary::isModernHangulWord(const std::string &word) {
+    if (word.empty()) {
+        return false;
+    }
+
+    size_t offset = 0;
+    while (offset < word.size()) {
+        if (offset + 2 >= word.size()) {
+            return false;
+        }
+        const auto first = static_cast<unsigned char>(word[offset]);
+        const auto second = static_cast<unsigned char>(word[offset + 1]);
+        const auto third = static_cast<unsigned char>(word[offset + 2]);
+        if ((first & 0xF0) != 0xE0 || (second & 0xC0) != 0x80 ||
+            (third & 0xC0) != 0x80) {
+            return false;
+        }
+        const auto codepoint = ((first & 0x0F) << 12) |
+                               ((second & 0x3F) << 6) | (third & 0x3F);
+        if (codepoint < 0xAC00 || codepoint > 0xD7A3) {
+            return false;
+        }
+        offset += 3;
+    }
+    return true;
+}
 
 bool CompletionDictionary::load(const std::filesystem::path &path) {
     std::ifstream stream(path);
@@ -36,7 +70,7 @@ bool CompletionDictionary::load(const std::filesystem::path &path) {
         if (!word.empty() && word.back() == '\r') {
             word.pop_back();
         }
-        if (!word.empty() && seen.insert(word).second) {
+        if (isModernHangulWord(word) && seen.insert(word).second) {
             words.push_back(std::move(word));
         }
     }
@@ -47,7 +81,7 @@ bool CompletionDictionary::load(const std::filesystem::path &path) {
 
 std::vector<std::string>
 CompletionDictionary::suggest(const std::string &prefix, size_t limit) const {
-    if (prefix.empty() || limit == 0 || words_.empty()) {
+    if (!isModernHangulWord(prefix) || limit == 0 || words_.empty()) {
         return {};
     }
 

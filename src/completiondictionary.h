@@ -30,6 +30,8 @@ public:
     suffixAfterCommittedPrefix(const std::string &candidate,
                                const std::string &committedPrefix);
 
+    static bool isModernHangulWord(const std::string &word);
+
 private:
     std::vector<std::string> words_;
 };

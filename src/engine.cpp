@@ -6,6 +6,7 @@
  */
 
 #include "engine.h"
+#include "candidatepolicy.h"
 #include <algorithm>
 #include <cstdlib>
 #include <fcitx-config/iniparser.h>
@@ -228,6 +229,12 @@ public:
         return ustringToUTF8(prefix);
     }
 
+    bool persistentHanjaMode() const {
+        return usePersistentHanjaCandidates(
+            *engine_->config().hanjaMode,
+            *engine_->config().wordCompletion);
+    }
+
     void updateCompletion() {
         cleanup();
 
@@ -235,7 +242,7 @@ public:
             CapabilityFlag::Password, CapabilityFlag::Sensitive,
             CapabilityFlag::NoSpellCheck};
         if (!*engine_->config().wordCompletion ||
-            *engine_->config().hanjaMode ||
+            persistentHanjaMode() ||
             ic_->capabilityFlags().testAny(noCompletionFlags) ||
             engine_->completionDictionary().empty()) {
             return;
@@ -270,7 +277,7 @@ public:
         preedit.append(ucsToUString(hic_preedit));
         if (!preedit.empty()) {
             auto utf8 = ustringToUTF8(preedit);
-            if (*engine_->config().wordCommit || *engine_->config().hanjaMode) {
+            if (*engine_->config().wordCommit || persistentHanjaMode()) {
                 hanjaKey = std::move(utf8);
                 lookupMethod = LookupMethod::LOOKUP_METHOD_PREFIX;
             } else {
@@ -358,12 +365,16 @@ public:
 
         if (keyEvent.key().checkKeyList(
                 *engine_->config().hanjaModeToggleKey)) {
-            if (!hanjaList_) {
-                updateLookupTable(true);
+            if (*engine_->config().wordCompletion) {
+                toggleHanjaCandidates();
             } else {
-                cleanup();
+                if (!hanjaList_) {
+                    updateLookupTable(true);
+                } else {
+                    cleanup();
+                }
+                updateUI();
             }
-            updateUI();
             keyEvent.filterAndAccept();
             return;
         }
@@ -457,7 +468,7 @@ public:
                 }
             }
 
-            if (!*engine_->config().hanjaMode) {
+            if (!persistentHanjaMode()) {
                 cleanup();
             }
         }
@@ -506,7 +517,7 @@ public:
             bool notFlush = false;
 
             const ucschar *str = hangul_ic_get_commit_string(context_.get());
-            if (*engine_->config().wordCommit || *engine_->config().hanjaMode) {
+            if (*engine_->config().wordCommit || persistentHanjaMode()) {
                 const ucschar *hic_preedit;
 
                 hic_preedit = hangul_ic_get_preedit_string(context_.get());
@@ -536,7 +547,7 @@ public:
             }
         }
 
-        if (*engine_->config().hanjaMode) {
+        if (persistentHanjaMode()) {
             updateLookupTable(false);
         } else {
             updateCompletion();
@@ -553,6 +564,20 @@ public:
         completionCommittedPrefix_.clear();
         hangul_ic_reset(context_.get());
         cleanup();
+        updateUI();
+    }
+
+    void toggleHanjaCandidates() {
+        if (candidateMode_ == CandidateMode::Hanja) {
+            cleanup();
+        } else {
+            // Completion commits the stable part of a Hangul word directly to
+            // Android. Flush the final composing syllable too, then perform a
+            // surrounding-text lookup so selecting Hanja replaces the entire
+            // word instead of duplicating its committed prefix.
+            flush();
+            updateLookupTable(true);
+        }
         updateUI();
     }
 
@@ -788,6 +813,10 @@ HangulEngine::HangulEngine(Instance *instance)
 
     reloadConfig();
     action_.connect<SimpleAction::Activated>([this](InputContext *ic) {
+        if (*config_.wordCompletion) {
+            state(ic)->toggleHanjaCandidates();
+            return;
+        }
         config_.hanjaMode.setValue(!*config_.hanjaMode);
         updateAction(ic);
     });
@@ -833,6 +862,7 @@ void HangulEngine::setConfig(const fcitx::RawConfig &rawConfig) {
     config_.load(rawConfig, true);
     instance_->inputContextManager().foreach([this](InputContext *ic) {
         state(ic)->configure();
+        updateAction(ic);
         return true;
     });
     safeSaveAsIni(config_, "conf/hangul.conf");
