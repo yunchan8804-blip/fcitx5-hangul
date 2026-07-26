@@ -102,6 +102,10 @@ msgstr "단어 단위 확정"
 msgid "Hanja Mode"
 msgstr "한자 모드"
 
+#: src/engine.h:99
+msgid "Enable Korean word completion"
+msgstr "한글 어절 자동완성"
+
 #: src/engine.h:135
 msgid "Use Hanja"
 msgstr "한자 사용"

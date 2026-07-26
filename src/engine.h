@@ -7,6 +7,7 @@
 #ifndef _FCITX5_HANGUL_ENGINE_H_
 #define _FCITX5_HANGUL_ENGINE_H_
 
+#include "completiondictionary.h"
 #include <cstdint>
 #include <fcitx-config/configuration.h>
 #include <fcitx-config/enum.h>
@@ -94,7 +95,9 @@ FCITX_CONFIGURATION(
                                   _("Combine Non Choseong"), true};
 #endif
     Option<bool> wordCommit{this, "WordCommit", _("Word Commit"), false};
-    Option<bool> hanjaMode{this, "HanjaMode", _("Hanja Mode"), false};);
+    Option<bool> hanjaMode{this, "HanjaMode", _("Hanja Mode"), false};
+    Option<bool> wordCompletion{this, "WordCompletion",
+                                _("Enable Korean word completion"), true};);
 
 enum class LookupMethod : uint8_t {
     LOOKUP_METHOD_PREFIX,
@@ -126,6 +129,7 @@ public:
 
     auto table() { return table_.get(); }
     auto symbolTable() { return symbolTable_.get(); }
+    const auto &completionDictionary() const { return completionDictionary_; }
 
     HangulState *state(InputContext *ic);
 
@@ -148,6 +152,7 @@ private:
     FactoryFor<HangulState> factory_;
     UniqueCPtr<HanjaTable, hanja_table_delete> table_;
     UniqueCPtr<HanjaTable, hanja_table_delete> symbolTable_;
+    CompletionDictionary completionDictionary_;
     SimpleAction action_;
 };
 

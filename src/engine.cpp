@@ -40,6 +40,7 @@ static const char *keyboardId[] = {"2",  "2y", "39", "3f", "3s",
                                    "3y", "32", "ro", "ahn"};
 
 constexpr auto MAX_LENGTH = 40;
+constexpr size_t COMPLETION_CANDIDATE_SIZE = 20;
 
 namespace fcitx {
 
@@ -68,6 +69,17 @@ std::u32string ucsToUString(const ucschar *str) {
         str++;
     }
     return result;
+}
+
+bool isModernHangulWord(const std::string &str, size_t minimumLength) {
+    size_t length = 0;
+    for (auto c : utf8::MakeUTF8CharRange(str)) {
+        if (c < 0xAC00 || c > 0xD7A3) {
+            return false;
+        }
+        length++;
+    }
+    return length >= minimumLength;
 }
 
 std::string subUTF8String(const std::string &str, int p1, int p2) {
@@ -108,7 +120,20 @@ HanjaTable *loadTable() {
     return table ? table : hanja_table_load(nullptr);
 }
 
+CompletionDictionary loadCompletionDictionary() {
+    CompletionDictionary dictionary;
+    const auto file = StandardPaths::global().locate(
+        StandardPathsType::PkgData, "hangul/completion.txt",
+        StandardPathsMode::System);
+    if (!file.empty()) {
+        dictionary.load(file);
+    }
+    return dictionary;
+}
+
 } // namespace
+
+enum class CandidateMode : uint8_t { None, Hanja, Completion };
 
 class HangulCandidate : public CandidateWord {
 public:
@@ -122,6 +147,20 @@ public:
 private:
     HangulEngine *engine_;
     int idx_;
+};
+
+class HangulCompletionCandidate : public CandidateWord {
+public:
+    HangulCompletionCandidate(HangulEngine *engine, std::string text)
+        : engine_(engine), value_(std::move(text)) {
+        setText(Text(value_));
+    }
+
+    void select(InputContext *inputContext) const override;
+
+private:
+    HangulEngine *engine_;
+    std::string value_;
 };
 
 class HangulState : public InputContextProperty {
@@ -178,11 +217,53 @@ public:
     }
 #endif
 
+    std::string currentCompletionPrefix() const {
+        std::u32string prefix = completionCommittedPrefix_;
+        prefix.append(preedit_);
+        const auto *hicPreedit =
+            hangul_ic_get_preedit_string(context_.get());
+        if (hicPreedit) {
+            prefix.append(ucsToUString(hicPreedit));
+        }
+        return ustringToUTF8(prefix);
+    }
+
+    void updateCompletion() {
+        cleanup();
+
+        const CapabilityFlags noCompletionFlags{
+            CapabilityFlag::Password, CapabilityFlag::Sensitive,
+            CapabilityFlag::NoSpellCheck};
+        if (!*engine_->config().wordCompletion ||
+            *engine_->config().hanjaMode ||
+            ic_->capabilityFlags().testAny(noCompletionFlags) ||
+            engine_->completionDictionary().empty()) {
+            return;
+        }
+
+        const auto prefix = currentCompletionPrefix();
+        if (!isModernHangulWord(prefix, 2)) {
+            return;
+        }
+
+        completionCandidates_ = engine_->completionDictionary().suggest(
+            prefix, COMPLETION_CANDIDATE_SIZE);
+        // A bar containing only the text already being composed is not a useful
+        // completion surface. Keep normal input untouched in this case.
+        if (completionCandidates_.size() < 2) {
+            completionCandidates_.clear();
+            return;
+        }
+        candidateMode_ = CandidateMode::Completion;
+    }
+
     void updateLookupTable(bool checkSurrounding) {
         std::string hanjaKey;
         LookupMethod lookupMethod = LookupMethod::LOOKUP_METHOD_PREFIX;
 
         hanjaList_.reset();
+        completionCandidates_.clear();
+        candidateMode_ = CandidateMode::None;
 
         const auto *hic_preedit = hangul_ic_get_preedit_string(context_.get());
         std::u32string preedit = preedit_;
@@ -229,6 +310,9 @@ public:
         if (!hanjaKey.empty()) {
             hanjaList_.reset(lookupTable(hanjaKey, lookupMethod));
             lastLookupMethod_ = lookupMethod;
+            if (hanjaList_) {
+                candidateMode_ = CandidateMode::Hanja;
+            }
         }
     }
 
@@ -362,9 +446,11 @@ public:
 
             if (keyEvent.key().check(FcitxKey_Return)) {
                 auto idx = candList->cursorIndex();
-                idx = std::max(idx, 0);
+                if (candidateMode_ == CandidateMode::Hanja) {
+                    idx = std::max(idx, 0);
+                }
 
-                if (idx < candList->size()) {
+                if (idx >= 0 && idx < candList->size()) {
                     candList->candidate(idx).select(ic_);
                     keyEvent.filterAndAccept();
                     return;
@@ -393,6 +479,12 @@ public:
                     preedit_.pop_back();
                     keyUsed = true;
                 }
+            }
+            if (!keyUsed && !completionCommittedPrefix_.empty()) {
+                // The key still needs to reach Android so the already committed
+                // prefix is deleted there as well. Mirror that deletion only in
+                // our candidate state.
+                completionCommittedPrefix_.pop_back();
             }
         } else {
             if (preedit_.size() >= MAX_LENGTH) {
@@ -430,7 +522,9 @@ public:
                 }
             } else {
                 if (str != nullptr && str[0] != 0) {
-                    auto commit = ustringToUTF8(ucsToUString(str));
+                    auto committed = ucsToUString(str);
+                    completionCommittedPrefix_.append(committed);
+                    auto commit = ustringToUTF8(committed);
                     if (!commit.empty()) {
                         ic_->commitString(commit);
                     }
@@ -445,7 +539,7 @@ public:
         if (*engine_->config().hanjaMode) {
             updateLookupTable(false);
         } else {
-            cleanup();
+            updateCompletion();
         }
 
         updateUI();
@@ -456,12 +550,17 @@ public:
 
     void reset() {
         preedit_.clear();
+        completionCommittedPrefix_.clear();
         hangul_ic_reset(context_.get());
-        hanjaList_.reset();
+        cleanup();
         updateUI();
     }
 
-    void cleanup() { hanjaList_.reset(); }
+    void cleanup() {
+        hanjaList_.reset();
+        completionCandidates_.clear();
+        candidateMode_ = CandidateMode::None;
+    }
 
     void flush() {
         cleanup();
@@ -471,10 +570,12 @@ public:
         preedit_ += ucsToUString(str);
 
         if (preedit_.empty()) {
+            completionCommittedPrefix_.clear();
             return;
         }
 
         auto utf8 = ustringToUTF8(preedit_);
+        completionCommittedPrefix_.clear();
         if (!utf8.empty()) {
             ic_->commitString(utf8);
         }
@@ -513,7 +614,25 @@ public:
     }
 
     void setLookupTable() {
-        if (!hanjaList_) {
+        if (candidateMode_ == CandidateMode::Completion) {
+            if (completionCandidates_.empty()) {
+                return;
+            }
+            auto candidate = std::make_unique<CommonCandidateList>();
+            candidate->setSelectionKey(selectionKeys());
+            candidate->setCursorIncludeUnselected(true);
+            candidate->setCursorPositionAfterPaging(
+                CursorPositionAfterPaging::ResetToFirst);
+            candidate->setPageSize(
+                engine_->instance()->globalConfig().defaultPageSize());
+            for (const auto &value : completionCandidates_) {
+                candidate->append<HangulCompletionCandidate>(engine_, value);
+            }
+            ic_->inputPanel().setCandidateList(std::move(candidate));
+            return;
+        }
+
+        if (candidateMode_ != CandidateMode::Hanja || !hanjaList_) {
             return;
         }
         HanjaList *list = hanjaList_.get();
@@ -611,19 +730,52 @@ public:
         updateUI();
     }
 
+    void selectCompletion(const std::string &value) {
+        const auto currentPrefix = currentCompletionPrefix();
+        if (candidateMode_ != CandidateMode::Completion ||
+            value.compare(0, currentPrefix.size(), currentPrefix) != 0) {
+            cleanup();
+            updateUI();
+            return;
+        }
+
+        const auto committedPrefix =
+            ustringToUTF8(completionCommittedPrefix_);
+        const auto suffix = CompletionDictionary::suffixAfterCommittedPrefix(
+            value, committedPrefix);
+        if (!suffix) {
+            cleanup();
+            updateUI();
+            return;
+        }
+
+        hangul_ic_reset(context_.get());
+        preedit_.clear();
+        cleanup();
+
+        completionCommittedPrefix_.clear();
+        if (!suffix->empty()) {
+            ic_->commitString(*suffix);
+        }
+        updateUI();
+    }
+
 private:
     HangulEngine *engine_;
     InputContext *ic_;
     UniqueCPtr<HangulInputContext, &hangul_ic_delete> context_;
     UniqueCPtr<HanjaList, &hanja_list_delete> hanjaList_;
     std::u32string preedit_;
+    std::u32string completionCommittedPrefix_;
+    std::vector<std::string> completionCandidates_;
+    CandidateMode candidateMode_ = CandidateMode::None;
     LookupMethod lastLookupMethod_;
 };
 
 HangulEngine::HangulEngine(Instance *instance)
     : instance_(instance),
       factory_([this](InputContext &ic) { return new HangulState(this, &ic); }),
-      table_(loadTable()) {
+      table_(loadTable()), completionDictionary_(loadCompletionDictionary()) {
     if (!table_) {
         throw std::runtime_error("Failed to load hanja table.");
     }
@@ -693,6 +845,11 @@ HangulState *HangulEngine::state(InputContext *ic) {
 void HangulCandidate::select(InputContext *inputContext) const {
     auto *state = engine_->state(inputContext);
     state->select(idx_);
+}
+
+void HangulCompletionCandidate::select(InputContext *inputContext) const {
+    auto *state = engine_->state(inputContext);
+    state->selectCompletion(value_);
 }
 } // namespace fcitx
 

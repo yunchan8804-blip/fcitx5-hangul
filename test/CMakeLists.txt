@@ -6,3 +6,5 @@ add_executable(testhangul testhangul.cpp)
 target_link_libraries(testhangul Fcitx5::Core Fcitx5::Module::TestFrontend)
 add_dependencies(testhangul copy-addon copy-im)
 add_test(NAME testhangul COMMAND testhangul)
+
+add_test(NAME testcompletiondictionary COMMAND testcompletiondictionary)

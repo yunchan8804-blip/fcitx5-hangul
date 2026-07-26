@@ -40,6 +40,10 @@ msgstr ""
 msgid "Dubeolsik Yetgeul"
 msgstr ""
 
+#: src/engine.h:99
+msgid "Enable Korean word completion"
+msgstr ""
+
 #: src/hangul.conf.in:2 src/hangul-addon.conf.in.in:2
 msgid "Hangul"
 msgstr ""
