@@ -132,6 +132,17 @@ CompletionDictionary loadCompletionDictionary() {
     return dictionary;
 }
 
+NextWordDictionary loadNextWordDictionary() {
+    NextWordDictionary dictionary;
+    const auto file = StandardPaths::global().locate(
+        StandardPathsType::PkgData, "hangul/nextword.txt",
+        StandardPathsMode::System);
+    if (!file.empty()) {
+        dictionary.load(file);
+    }
+    return dictionary;
+}
+
 const CompletionDictionary &loadPersonalCompletionDictionary() {
     static PersonalDictionaryCache cache;
     static const CompletionDictionary empty;
@@ -145,7 +156,7 @@ const CompletionDictionary &loadPersonalCompletionDictionary() {
 
 } // namespace
 
-enum class CandidateMode : uint8_t { None, Hanja, Completion };
+enum class CandidateMode : uint8_t { None, Hanja, Completion, NextWord };
 
 class HangulCandidate : public CandidateWord {
 public:
@@ -170,6 +181,21 @@ public:
     HangulCompletionCandidate(HangulEngine *engine, std::string text)
         : engine_(engine), value_(std::move(text)) {
         setText(Text(value_));
+    }
+
+    void select(InputContext *inputContext) const override;
+
+private:
+    HangulEngine *engine_;
+    std::string value_;
+};
+
+class HangulNextWordCandidate : public CandidateWord {
+public:
+    HangulNextWordCandidate(HangulEngine *engine, std::string text)
+        : engine_(engine), value_(std::move(text)) {
+        setText(Text(value_));
+        setComment(Text(_("Next word")));
     }
 
     void select(InputContext *inputContext) const override;
@@ -284,12 +310,30 @@ public:
         candidateMode_ = CandidateMode::Completion;
     }
 
+    void updateNextWord(const std::string &previousWord) {
+        cleanup();
+        if (!allowKoreanNextWord(
+                *engine_->config().wordCompletion, true,
+                ic_->capabilityFlags().test(CapabilityFlag::Password),
+                ic_->capabilityFlags().test(CapabilityFlag::Sensitive),
+                ic_->capabilityFlags().test(CapabilityFlag::NoSpellCheck)) ||
+            engine_->nextWordDictionary().empty()) {
+            return;
+        }
+        nextWordCandidates_ = engine_->nextWordDictionary().suggest(
+            previousWord, COMPLETION_CANDIDATE_SIZE);
+        if (!nextWordCandidates_.empty()) {
+            candidateMode_ = CandidateMode::NextWord;
+        }
+    }
+
     void updateLookupTable(bool checkSurrounding) {
         std::string hanjaKey;
         LookupMethod lookupMethod = LookupMethod::LOOKUP_METHOD_PREFIX;
 
         hanjaList_.reset();
         completionCandidates_.clear();
+        nextWordCandidates_.clear();
         candidateMode_ = CandidateMode::None;
 
         const auto *hic_preedit = hangul_ic_get_preedit_string(context_.get());
@@ -502,6 +546,13 @@ public:
         }
 
         bool keyUsed = false;
+        const auto nextWordSource = pendingCompletedWord_.empty()
+                                        ? currentCompletionPrefix()
+                                        : pendingCompletedWord_;
+        const bool nextWordBoundary =
+            keyEvent.key().check(FcitxKey_space) &&
+            isModernHangulWord(nextWordSource, 1);
+        pendingCompletedWord_.clear();
         if (keyEvent.key().check(FcitxKey_BackSpace)) {
             keyUsed = hangul_ic_backspace(context_.get());
             if (!keyUsed) {
@@ -569,6 +620,8 @@ public:
 
         if (persistentHanjaMode()) {
             updateLookupTable(false);
+        } else if (nextWordBoundary) {
+            updateNextWord(nextWordSource);
         } else {
             updateCompletion();
         }
@@ -582,6 +635,7 @@ public:
     void reset() {
         preedit_.clear();
         completionCommittedPrefix_.clear();
+        pendingCompletedWord_.clear();
         hangul_ic_reset(context_.get());
         cleanup();
         updateUI();
@@ -604,11 +658,13 @@ public:
     void cleanup() {
         hanjaList_.reset();
         completionCandidates_.clear();
+        nextWordCandidates_.clear();
         candidateMode_ = CandidateMode::None;
     }
 
     void flush() {
         cleanup();
+        pendingCompletedWord_.clear();
 
         const auto *str = hangul_ic_flush(context_.get());
 
@@ -672,6 +728,24 @@ public:
                 engine_->instance()->globalConfig().defaultPageSize());
             for (const auto &value : completionCandidates_) {
                 candidate->append<HangulCompletionCandidate>(engine_, value);
+            }
+            ic_->inputPanel().setCandidateList(std::move(candidate));
+            return;
+        }
+
+        if (candidateMode_ == CandidateMode::NextWord) {
+            if (nextWordCandidates_.empty()) {
+                return;
+            }
+            auto candidate = std::make_unique<CommonCandidateList>();
+            candidate->setSelectionKey(selectionKeys());
+            candidate->setCursorIncludeUnselected(true);
+            candidate->setCursorPositionAfterPaging(
+                CursorPositionAfterPaging::ResetToFirst);
+            candidate->setPageSize(
+                engine_->instance()->globalConfig().defaultPageSize());
+            for (const auto &value : nextWordCandidates_) {
+                candidate->append<HangulNextWordCandidate>(engine_, value);
             }
             ic_->inputPanel().setCandidateList(std::move(candidate));
             return;
@@ -801,9 +875,25 @@ public:
         cleanup();
 
         completionCommittedPrefix_.clear();
+        pendingCompletedWord_ = value;
         if (!suffix->empty()) {
             ic_->commitString(*suffix);
         }
+        updateUI();
+    }
+
+    void selectNextWord(const std::string &value) {
+        if (candidateMode_ != CandidateMode::NextWord ||
+            std::find(nextWordCandidates_.begin(), nextWordCandidates_.end(),
+                      value) == nextWordCandidates_.end()) {
+            cleanup();
+            updateUI();
+            return;
+        }
+
+        cleanup();
+        pendingCompletedWord_ = value;
+        ic_->commitString(value);
         updateUI();
     }
 
@@ -815,6 +905,8 @@ private:
     std::u32string preedit_;
     std::u32string completionCommittedPrefix_;
     std::vector<std::string> completionCandidates_;
+    std::vector<std::string> nextWordCandidates_;
+    std::string pendingCompletedWord_;
     CandidateMode candidateMode_ = CandidateMode::None;
     LookupMethod lastLookupMethod_;
 };
@@ -822,7 +914,8 @@ private:
 HangulEngine::HangulEngine(Instance *instance)
     : instance_(instance),
       factory_([this](InputContext &ic) { return new HangulState(this, &ic); }),
-      table_(loadTable()), completionDictionary_(loadCompletionDictionary()) {
+      table_(loadTable()), completionDictionary_(loadCompletionDictionary()),
+      nextWordDictionary_(loadNextWordDictionary()) {
     if (!table_) {
         throw std::runtime_error("Failed to load hanja table.");
     }
@@ -902,6 +995,11 @@ void HangulCandidate::select(InputContext *inputContext) const {
 void HangulCompletionCandidate::select(InputContext *inputContext) const {
     auto *state = engine_->state(inputContext);
     state->selectCompletion(value_);
+}
+
+void HangulNextWordCandidate::select(InputContext *inputContext) const {
+    auto *state = engine_->state(inputContext);
+    state->selectNextWord(value_);
 }
 } // namespace fcitx
 

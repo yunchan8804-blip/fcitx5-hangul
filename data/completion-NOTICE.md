@@ -2,6 +2,10 @@
 
 `completion.txt` combines two sources in display-priority order.
 
+`nextword.txt` is a separate, small project-curated previous-eojeol mapping for
+offline next-word suggestions. It was not generated from either completion
+source below and contains no user input or learned usage data.
+
 1. Short mobile conversation forms authored for this project.
 2. Complete-Hangul headwords derived from the National Institute of Korean
    Language's **Korean learning vocabulary list** (`한국어 학습용 어휘 목록`).

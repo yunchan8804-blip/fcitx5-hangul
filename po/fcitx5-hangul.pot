@@ -124,6 +124,10 @@ msgstr ""
 msgid "Convert to Hanja"
 msgstr ""
 
+#: src/engine.cpp
+msgid "Next word"
+msgstr ""
+
 #: src/engine.h:93
 msgid "Word Commit"
 msgstr ""

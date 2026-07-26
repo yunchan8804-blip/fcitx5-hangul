@@ -24,6 +24,16 @@ constexpr bool allowKoreanCompletion(bool password, bool sensitive,
     return !password && !sensitive && !noSpellCheck;
 }
 
+// Next-word candidates are only an explicit surface after a literal word
+// boundary. No candidate may be generated in sensitive editors or inserted by
+// this policy itself.
+constexpr bool allowKoreanNextWord(bool completionEnabled, bool spaceBoundary,
+                                   bool password, bool sensitive,
+                                   bool noSpellCheck) {
+    return completionEnabled && spaceBoundary &&
+           allowKoreanCompletion(password, sensitive, noSpellCheck);
+}
+
 } // namespace fcitx
 
 #endif // _FCITX5_HANGUL_CANDIDATEPOLICY_H_

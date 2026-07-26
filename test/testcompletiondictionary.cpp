@@ -150,6 +150,34 @@ int main() {
     std::filesystem::remove(secondPersonalPath);
     std::filesystem::remove(personalPath);
 
+    const auto nextWordPath = std::filesystem::temp_directory_path() /
+                              "next-word-dictionary-test.txt";
+    {
+        std::ofstream stream(nextWordPath);
+        stream << "# previous<TAB>next...\n"
+                  "오늘\t하루도\t날씨가\t하루도\n"
+                  "오늘\t저녁에\t날씨가\r\n"
+                  "정말\t감사합니다\t좋아요\n";
+    }
+    NextWordDictionary nextWords;
+    assert(nextWords.load(nextWordPath));
+    assert(nextWords.size() == 2);
+    assert((nextWords.suggest("오늘", 10) ==
+            std::vector<std::string>{"하루도", "날씨가", "저녁에"}));
+    assert((nextWords.suggest("오늘", 2) ==
+            std::vector<std::string>{"하루도", "날씨가"}));
+    assert(nextWords.suggest("없는말", 5).empty());
+    assert(nextWords.suggest("今天", 5).empty());
+    assert(nextWords.suggest("오늘", 0).empty());
+
+    {
+        std::ofstream stream(nextWordPath);
+        stream << "오늘\t좋아요\tChinese\n";
+    }
+    assert(!nextWords.load(nextWordPath));
+    assert(nextWords.empty());
+    std::filesystem::remove(nextWordPath);
+
     assert(!usePersistentHanjaCandidates(false, false));
     assert(usePersistentHanjaCandidates(true, false));
     assert(!usePersistentHanjaCandidates(false, true));
@@ -159,6 +187,13 @@ int main() {
     assert(!allowKoreanCompletion(true, false, false));
     assert(!allowKoreanCompletion(false, true, false));
     assert(!allowKoreanCompletion(false, false, true));
+
+    assert(allowKoreanNextWord(true, true, false, false, false));
+    assert(!allowKoreanNextWord(false, true, false, false, false));
+    assert(!allowKoreanNextWord(true, false, false, false, false));
+    assert(!allowKoreanNextWord(true, true, true, false, false));
+    assert(!allowKoreanNextWord(true, true, false, true, false));
+    assert(!allowKoreanNextWord(true, true, false, false, true));
 
     return 0;
 }

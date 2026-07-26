@@ -269,4 +269,92 @@ PersonalDictionaryCache::dictionary(const std::filesystem::path &path) {
     return dictionary_;
 }
 
+bool NextWordDictionary::load(const std::filesystem::path &path) {
+    candidates_.clear();
+    std::error_code error;
+    const auto size = std::filesystem::file_size(path, error);
+    if (error || size == 0 || size > 64 * 1024) {
+        return false;
+    }
+
+    std::ifstream stream(path);
+    if (!stream) {
+        return false;
+    }
+
+    std::unordered_map<std::string, std::vector<std::string>> parsed;
+    std::string line;
+    size_t entryCount = 0;
+    while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (line.empty() || line.front() == '#') {
+            continue;
+        }
+        if (++entryCount > 500) {
+            candidates_.clear();
+            return false;
+        }
+
+        std::vector<std::string> columns;
+        size_t offset = 0;
+        while (offset <= line.size()) {
+            const auto separator = line.find('\t', offset);
+            columns.push_back(line.substr(
+                offset, separator == std::string::npos
+                            ? std::string::npos
+                            : separator - offset));
+            if (separator == std::string::npos) {
+                break;
+            }
+            offset = separator + 1;
+        }
+        if (columns.size() < 2 ||
+            !CompletionDictionary::isModernHangulWord(columns.front())) {
+            candidates_.clear();
+            return false;
+        }
+
+        auto &values = parsed[columns.front()];
+        std::unordered_set<std::string> seen(values.begin(), values.end());
+        for (size_t i = 1; i < columns.size(); ++i) {
+            const auto &candidate = columns[i];
+            if (!CompletionDictionary::isModernHangulWord(candidate)) {
+                candidates_.clear();
+                return false;
+            }
+            if (candidate != columns.front() && seen.insert(candidate).second) {
+                values.push_back(candidate);
+            }
+        }
+        if (values.empty()) {
+            candidates_.clear();
+            return false;
+        }
+    }
+    if (!stream.eof() || parsed.empty()) {
+        candidates_.clear();
+        return false;
+    }
+
+    candidates_ = std::move(parsed);
+    return true;
+}
+
+std::vector<std::string>
+NextWordDictionary::suggest(const std::string &previousWord,
+                            size_t limit) const {
+    if (limit == 0 ||
+        !CompletionDictionary::isModernHangulWord(previousWord)) {
+        return {};
+    }
+    const auto found = candidates_.find(previousWord);
+    if (found == candidates_.end()) {
+        return {};
+    }
+    const auto count = std::min(limit, found->second.size());
+    return {found->second.begin(), found->second.begin() + count};
+}
+
 } // namespace fcitx

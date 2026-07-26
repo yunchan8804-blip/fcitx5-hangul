@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace fcitx {
@@ -61,6 +62,24 @@ private:
 
     std::optional<FileSignature> signature_;
     CompletionDictionary dictionary_;
+};
+
+/**
+ * Strict, read-only previous-eojeol to next-eojeol table. It never observes or
+ * persists editor text; the caller supplies only the word composed in the
+ * current HangulState.
+ */
+class NextWordDictionary {
+public:
+    bool load(const std::filesystem::path &path);
+    bool empty() const { return candidates_.empty(); }
+    size_t size() const { return candidates_.size(); }
+
+    std::vector<std::string> suggest(const std::string &previousWord,
+                                     size_t limit) const;
+
+private:
+    std::unordered_map<std::string, std::vector<std::string>> candidates_;
 };
 
 } // namespace fcitx

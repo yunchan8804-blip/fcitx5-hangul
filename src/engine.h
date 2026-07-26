@@ -131,6 +131,7 @@ public:
     auto table() { return table_.get(); }
     auto symbolTable() { return symbolTable_.get(); }
     const auto &completionDictionary() const { return completionDictionary_; }
+    const auto &nextWordDictionary() const { return nextWordDictionary_; }
 
     HangulState *state(InputContext *ic);
 
@@ -160,6 +161,7 @@ private:
     UniqueCPtr<HanjaTable, hanja_table_delete> table_;
     UniqueCPtr<HanjaTable, hanja_table_delete> symbolTable_;
     CompletionDictionary completionDictionary_;
+    NextWordDictionary nextWordDictionary_;
     SimpleAction action_;
 };
 
