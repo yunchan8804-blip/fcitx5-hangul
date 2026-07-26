@@ -6,6 +6,7 @@
 #include "completiondictionary.h"
 #include "candidatepolicy.h"
 #include <cassert>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -57,10 +58,107 @@ int main() {
             std::vector<std::string>{"감사", "감사합니다"}));
     std::filesystem::remove(path);
 
+    const auto personalPath = std::filesystem::temp_directory_path() /
+                              "personal-completion-dictionary-test.txt";
+    {
+        std::ofstream stream(personalPath);
+        stream << "# fcitx5-android-personal-dictionary-v1\n"
+                  "enabled\t1\n"
+                  "word\tname\t안녕윤찬\n"
+                  "word\tcompany\t안녕회사\n"
+                  "word\tterm\t안녕하세요\n"
+                  "word\tname\t안녕윤찬\n";
+    }
+    CompletionDictionary personal;
+    assert(personal.loadPersonal(personalPath));
+    assert(personal.size() == 3);
+    assert((CompletionDictionary::suggestPrioritized(
+                "안녕", personal, dictionary, 5) ==
+            std::vector<std::string>{"안녕", "안녕윤찬", "안녕회사",
+                                     "안녕하세요", "안녕하십니까"}));
+    assert((CompletionDictionary::suggestPrioritized(
+                "안녕", personal, dictionary, 3) ==
+            std::vector<std::string>{"안녕", "안녕윤찬", "안녕회사"}));
+
+    {
+        std::ofstream stream(personalPath);
+        stream << "# fcitx5-android-personal-dictionary-v1\n"
+                  "enabled\t0\n"
+                  "word\tname\t안녕윤찬\n";
+    }
+    assert(personal.loadPersonal(personalPath));
+    assert(personal.empty());
+
+    {
+        std::ofstream stream(personalPath);
+        stream << "# fcitx5-android-personal-dictionary-v1\n"
+                  "enabled\t1\n"
+                  "word\tunknown\t안녕윤찬\n";
+    }
+    assert(!personal.loadPersonal(personalPath));
+    assert(personal.empty());
+    assert((CompletionDictionary::suggestPrioritized(
+                "안녕", personal, dictionary, 3) ==
+            std::vector<std::string>{"안녕", "안녕하세요", "안녕하십니까"}));
+
+    // The IME hot path must not reopen and reparse an unchanged file. Replacing
+    // it with same-size data while restoring the stamp proves the cached value
+    // is used until the path, mtime, or size changes.
+    {
+        std::ofstream stream(personalPath);
+        stream << "# fcitx5-android-personal-dictionary-v1\n"
+                  "enabled\t1\n"
+                  "word\tname\t안녕윤찬\n";
+    }
+    const auto originalTime = std::filesystem::last_write_time(personalPath);
+    PersonalDictionaryCache cache;
+    assert((cache.dictionary(personalPath).suggest("안녕", 3) ==
+            std::vector<std::string>{"안녕", "안녕윤찬"}));
+    {
+        std::ofstream stream(personalPath);
+        stream << "# fcitx5-android-personal-dictionary-v1\n"
+                  "enabled\t1\n"
+                  "word\tname\t안녕민수\n";
+    }
+    std::filesystem::last_write_time(personalPath, originalTime);
+    assert((cache.dictionary(personalPath).suggest("안녕", 3) ==
+            std::vector<std::string>{"안녕", "안녕윤찬"}));
+
+    std::filesystem::last_write_time(personalPath,
+                                     originalTime + std::chrono::seconds(2));
+    assert((cache.dictionary(personalPath).suggest("안녕", 3) ==
+            std::vector<std::string>{"안녕", "안녕민수"}));
+
+    {
+        std::ofstream stream(personalPath);
+        stream << "corrupt\n";
+    }
+    assert(cache.dictionary(personalPath).empty());
+    // The corrupt result is also cached and remains fail-closed.
+    assert(cache.dictionary(personalPath).empty());
+
+    const auto secondPersonalPath = std::filesystem::temp_directory_path() /
+                                    "personal-completion-cache-path-test.txt";
+    {
+        std::ofstream stream(secondPersonalPath);
+        stream << "# fcitx5-android-personal-dictionary-v1\n"
+                  "enabled\t1\n"
+                  "word\tcompany\t안녕회사\n";
+    }
+    assert((cache.dictionary(secondPersonalPath).suggest("안녕", 3) ==
+            std::vector<std::string>{"안녕", "안녕회사"}));
+    std::filesystem::remove(secondPersonalPath);
+    std::filesystem::remove(personalPath);
+
     assert(!usePersistentHanjaCandidates(false, false));
     assert(usePersistentHanjaCandidates(true, false));
     assert(!usePersistentHanjaCandidates(false, true));
     assert(!usePersistentHanjaCandidates(true, true));
+
+    assert(allowKoreanCompletion(false, false, false));
+    assert(!allowKoreanCompletion(true, false, false));
+    assert(!allowKoreanCompletion(false, true, false));
+    assert(!allowKoreanCompletion(false, false, true));
 
     return 0;
 }

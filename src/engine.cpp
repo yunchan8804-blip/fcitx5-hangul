@@ -132,6 +132,17 @@ CompletionDictionary loadCompletionDictionary() {
     return dictionary;
 }
 
+const CompletionDictionary &loadPersonalCompletionDictionary() {
+    static PersonalDictionaryCache cache;
+    static const CompletionDictionary empty;
+    const auto *root = std::getenv("FCITX_ANDROID_NO_BACKUP");
+    if (!root || !*root) {
+        return empty;
+    }
+    return cache.dictionary(std::filesystem::path(root) /
+                            "korean-personal-dictionary" / "words.txt");
+}
+
 } // namespace
 
 enum class CandidateMode : uint8_t { None, Hanja, Completion };
@@ -242,13 +253,12 @@ public:
     void updateCompletion() {
         cleanup();
 
-        const CapabilityFlags noCompletionFlags{
-            CapabilityFlag::Password, CapabilityFlag::Sensitive,
-            CapabilityFlag::NoSpellCheck};
         if (!*engine_->config().wordCompletion ||
             persistentHanjaMode() ||
-            ic_->capabilityFlags().testAny(noCompletionFlags) ||
-            engine_->completionDictionary().empty()) {
+            !allowKoreanCompletion(
+                ic_->capabilityFlags().test(CapabilityFlag::Password),
+                ic_->capabilityFlags().test(CapabilityFlag::Sensitive),
+                ic_->capabilityFlags().test(CapabilityFlag::NoSpellCheck))) {
             return;
         }
 
@@ -257,8 +267,14 @@ public:
             return;
         }
 
-        completionCandidates_ = engine_->completionDictionary().suggest(
-            prefix, COMPLETION_CANDIDATE_SIZE);
+        const auto &personalDictionary = loadPersonalCompletionDictionary();
+        if (personalDictionary.empty() &&
+            engine_->completionDictionary().empty()) {
+            return;
+        }
+        completionCandidates_ = CompletionDictionary::suggestPrioritized(
+            prefix, personalDictionary, engine_->completionDictionary(),
+            COMPLETION_CANDIDATE_SIZE);
         // A bar containing only the text already being composed is not a useful
         // completion surface. Keep normal input untouched in this case.
         if (completionCandidates_.size() < 2) {
