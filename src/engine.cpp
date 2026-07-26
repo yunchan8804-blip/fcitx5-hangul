@@ -971,10 +971,21 @@ void HangulEngine::reset(const InputMethodEntry & /*entry*/,
     state->reset();
 }
 
-void HangulEngine::reloadConfig() { readAsIni(config_, "conf/hangul.conf"); }
+void HangulEngine::reloadConfig() {
+    readAsIni(config_, "conf/hangul.conf");
+    if (shouldClearLegacyHanjaMode(*config_.hanjaMode,
+                                   *config_.wordCompletion)) {
+        config_.hanjaMode.setValue(false);
+        safeSaveAsIni(config_, "conf/hangul.conf");
+    }
+}
 
 void HangulEngine::setConfig(const fcitx::RawConfig &rawConfig) {
     config_.load(rawConfig, true);
+    if (shouldClearLegacyHanjaMode(*config_.hanjaMode,
+                                   *config_.wordCompletion)) {
+        config_.hanjaMode.setValue(false);
+    }
     instance_->inputContextManager().foreach([this](InputContext *ic) {
         state(ic)->configure();
         updateAction(ic);

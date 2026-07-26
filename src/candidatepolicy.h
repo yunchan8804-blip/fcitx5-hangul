@@ -16,6 +16,14 @@ constexpr bool usePersistentHanjaCandidates(bool hanjaMode,
     return hanjaMode && !wordCompletion;
 }
 
+// Word completion turns the Hanja control into an explicit one-shot action.
+// Clear a legacy persistent value so settings and status surfaces cannot imply
+// that the current Korean input mode is Hanja.
+constexpr bool shouldClearLegacyHanjaMode(bool hanjaMode,
+                                          bool wordCompletion) {
+    return hanjaMode && wordCompletion;
+}
+
 // Android maps IME_FLAG_NO_PERSONALIZED_LEARNING to Sensitive. Keeping the
 // complete flag policy explicit here makes the native privacy boundary
 // testable without collecting editor or application identity.

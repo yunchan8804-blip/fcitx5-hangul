@@ -182,6 +182,10 @@ int main() {
     assert(usePersistentHanjaCandidates(true, false));
     assert(!usePersistentHanjaCandidates(false, true));
     assert(!usePersistentHanjaCandidates(true, true));
+    assert(!shouldClearLegacyHanjaMode(false, false));
+    assert(!shouldClearLegacyHanjaMode(true, false));
+    assert(!shouldClearLegacyHanjaMode(false, true));
+    assert(shouldClearLegacyHanjaMode(true, true));
 
     assert(allowKoreanCompletion(false, false, false));
     assert(!allowKoreanCompletion(true, false, false));
