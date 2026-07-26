@@ -50,6 +50,22 @@ void scheduleEvent(Instance *instance) {
             uuid, Key("Q"), false));
         FCITX_ASSERT(testfrontend->call<ITestFrontend::sendKeyEvent>(
             uuid, Key(FcitxKey_Q, KeyState::CapsLock), false));
+
+        // The one-shot Hanja action must expose the bundled dictionary's
+        // Korean reading/meaning as candidate comments, not only glyphs.
+        testfrontend->call<ITestFrontend::pushCommitExpectation>("가");
+        FCITX_ASSERT(testfrontend->call<ITestFrontend::sendKeyEvent>(
+            uuid, Key("r"), false));
+        FCITX_ASSERT(testfrontend->call<ITestFrontend::sendKeyEvent>(
+            uuid, Key("k"), false));
+        FCITX_ASSERT(testfrontend->call<ITestFrontend::sendKeyEvent>(
+            uuid, Key("F9"), false));
+        auto *candidates = ic->inputPanel().candidateList();
+        FCITX_ASSERT(candidates);
+        FCITX_ASSERT(!candidates->empty());
+        FCITX_ASSERT(candidates->candidate(0).text().toString() == "可");
+        FCITX_ASSERT(candidates->candidate(0).comment().toString() ==
+                     "옳을 가");
         instance->deactivate();
     });
 
