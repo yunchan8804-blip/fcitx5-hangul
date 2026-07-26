@@ -141,11 +141,11 @@ public:
         action_.setIcon(persistentHanja ? "fcitx-hanja-active"
                                         : "fcitx-hanja-inactive");
         action_.setLongText(*config_.wordCompletion
-                                ? _("Convert to Hanja")
+                                ? _("Use Hangul")
                                 : (persistentHanja ? _("Use Hanja")
                                                    : _("Use Hangul")));
         action_.setShortText(*config_.wordCompletion
-                                 ? "\xed\x95\x9c\xec\x9e\x90"
+                                 ? "\xed\x95\x9c\xea\xb8\x80"
                                  : (persistentHanja ? "\xe9\x9f\x93"
                                                     : "\xed\x95\x9c"));
         action_.update(ic);

@@ -114,9 +114,6 @@ msgstr "한자 사용"
 msgid "Use Hangul"
 msgstr "한글 사용"
 
-msgid "Convert to Hanja"
-msgstr "한자로 변환"
-
 #: src/engine.cpp
 msgid "Next word"
 msgstr "다음 단어"
