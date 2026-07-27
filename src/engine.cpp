@@ -645,12 +645,22 @@ public:
         if (candidateMode_ == CandidateMode::Hanja) {
             cleanup();
         } else {
-            // Completion commits the stable part of a Hangul word directly to
-            // Android. Flush the final composing syllable too, then perform a
-            // surrounding-text lookup so selecting Hanja replaces the entire
-            // word instead of duplicating its committed prefix.
+            // Capture the whole active word before flush(). Android does not
+            // synchronously reflect commitString() in surrounding text, so a
+            // lookup performed immediately after flushing can otherwise miss
+            // the final syllable and show no Hanja candidates.
+            const auto activeWord = currentCompletionPrefix();
             flush();
-            updateLookupTable(true);
+            if (!activeWord.empty()) {
+                hanjaList_.reset(lookupTable(
+                    activeWord, LookupMethod::LOOKUP_METHOD_PREFIX));
+                lastLookupMethod_ = LookupMethod::LOOKUP_METHOD_PREFIX;
+                if (hanjaList_) {
+                    candidateMode_ = CandidateMode::Hanja;
+                }
+            } else {
+                updateLookupTable(true);
+            }
         }
         updateUI();
     }
